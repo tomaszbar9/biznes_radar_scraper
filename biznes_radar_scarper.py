@@ -1,15 +1,16 @@
 import argparse
-from datetime import datetime
+import datetime
 import os
 import random
 import re
-import requests
 import shelve
 import sys
 import time
 
 from bs4 import BeautifulSoup as bs
 import pandas as pd
+import requests
+from tqdm import tqdm
 
 
 parser = argparse.ArgumentParser(
@@ -53,7 +54,7 @@ args = parser.parse_args()
 
 base_url = 'https://www.biznesradar.pl'
 all_stocks_url = 'https://www.biznesradar.pl/gielda/akcje_gpw'
-todays_date = datetime.utcnow().date()
+todays_date = datetime.datetime.now(datetime.UTC).date()
 current_directory = os.path.abspath('')
 temp_file = (os.path.join(current_directory, 'temp_shelf'))
 saved_in_temp = None
@@ -130,7 +131,7 @@ for link in soup_all_stocks.table.find_all('a'):
 
 links_length = len(all_links)
 
-for index, link in enumerate(all_links):
+for index, link in enumerate(tqdm(all_links)):
     response_main_stock_site = requests.get(base_url + link)
     soup = bs(response_main_stock_site.text, features="html.parser")
     wait()
@@ -144,19 +145,19 @@ for index, link in enumerate(all_links):
     name = (search.group(2) or symbol).strip(" ()")
 
     financial_analysis_link = base_url + \
-        soup.find(string="ANALIZA FINANSOWA").parent['href']
+        soup.find(string=re.compile("ANALIZA FINANSOW", re.IGNORECASE)).parent['href']
     financial_reponse = requests.get(financial_analysis_link)
     financial_soup = bs(financial_reponse.text, features="html.parser")
     wait()
 
     balance_link = base_url + \
-        financial_soup.find(string="BILANS").parent.get('href')
+        financial_soup.find(string=re.compile("BILANS", re.IGNORECASE)).parent.get('href')
     response_balance = requests.get(balance_link)
     balance_soup = bs(response_balance.text, features="html.parser")
     wait()
 
     dividends_link = base_url + \
-        soup.find(string="DYWIDENDY").parent.get('href')
+        soup.find(string=re.compile("DYWIDENDY", re.IGNORECASE)).parent.get('href')
     response_dividends = requests.get(dividends_link)
     dividends_soup = bs(response_dividends.text, features="html.parser")
     wait()
@@ -169,17 +170,20 @@ for index, link in enumerate(all_links):
         else:
             print("All done!")
 
-    stock_data = {
-        "Nazwa": name,
-        "Symbol": symbol,
-        "Data": str(todays_date),
-        "Kurs": float(soup.find(class_='profile-h1-c').find(class_='q_ch_act').text),
-        "Liczba akcji": get_int(
-            soup.find(string="Liczba akcji:").next.find('a').text),
-        "Kapitalizacja": get_int(soup.find(string="Kapitalizacja:").next.text),
-        "Zysk netto w ostatnich 10 latach (w tys.)": last_10_years_records(financial_soup.find(
-            "tr", attrs={"data-field": "IncomeNetProfit"}).find_all('td'))
-    }
+    try:
+        stock_data = {
+            "Nazwa": name,
+            "Symbol": symbol,
+            "Data": str(todays_date),
+            "Kurs": float(soup.find(class_='profile-h1-c').find(class_='q_ch_act').text),
+            "Liczba akcji": get_int(
+                soup.find(string="Liczba akcji:").next.find('a').text),
+            "Kapitalizacja": get_int(soup.find(string="Kapitalizacja:").next.text),
+            "Zysk netto w ostatnich 10 latach (w tys.)": last_10_years_records(financial_soup.find(
+                "tr", attrs={"data-field": "IncomeNetProfit"}).find_all('td'))
+        }
+    except AttributeError:
+        continue
 
     try:
         income = last_10_years_records(financial_soup.find(
